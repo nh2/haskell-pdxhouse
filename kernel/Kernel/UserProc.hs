@@ -1,7 +1,7 @@
 module Kernel.UserProc(UProc,buildUProc,execUProc) where
 
 {-P:
-import Prelude hiding (putStr)
+import Prelude hiding (putStr,getChar)
 -}
 -- import Kernel.Debug(putStr,putStrLn)
 import Numeric(showHex)
@@ -21,6 +21,7 @@ import Kernel.AOut
 data UProc = UProc
 	     {aout        :: AOut,
 	      myPutStr    :: String -> H (),
+              myGetChar   :: H Char,
 	      brk	  :: VAddr,
 	      maxBrk      :: VAddr,
               stackRegion :: VRegion,
@@ -43,8 +44,8 @@ maxStackPages = 16
 maxHeapPages :: Int
 maxHeapPages = 128   -- 512KB 
 
-buildUProc :: (String -> H()) -> Image -> H UProc
-buildUProc putStr aoutImage =
+buildUProc :: (H Char) -> (String -> H()) -> Image -> H UProc
+buildUProc getChar putStr aoutImage =
      do aout  <- buildAOut aoutImage
         let brk = pageCeiling (snd $ bssRegion aout)
         let endStack = snd userRegion
@@ -53,6 +54,7 @@ buildUProc putStr aoutImage =
         return UProc
 	       {aout        = aout,
                 myPutStr    = putStr,
+                myGetChar   = getChar,
 	        brk         = brk,
 		maxBrk      = brk + fromIntegral (maxHeapPages*pageSize),
 	        stackRegion = (startStack,endStack),
@@ -116,10 +118,13 @@ doSyscall uproc@UProc{context=Context{eax=callnum,ebx=arg}} =
             case extendBrk uproc arg of
               Nothing                   -> return $ uproc `withResult` (-1)
               Just (uproc',oldBrk)      -> return $ uproc' `withResult` oldBrk
+       3 -> {- getChar -}
+            do c <- myGetChar uproc
+               return $ uproc `withResult` ((fromIntegral (fromEnum c))::Word32)
        _ -> return $ uproc `withResult` (-1) 
    where withResult uproc@UProc{context=context} v = 
             Left (uproc{context=context{eax=v}})
-
+            
 
 freeUProc :: UProc -> H ()
 freeUProc uproc  

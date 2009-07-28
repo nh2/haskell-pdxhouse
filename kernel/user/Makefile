@@ -1,4 +1,4 @@
-APPS=div foo hello loop sample alt
+APPS=div foo hello loop sample alt echo
 DST=../../floppy_dir
 
 CFLAGS=-fno-builtin

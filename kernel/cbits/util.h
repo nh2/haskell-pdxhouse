@@ -17,6 +17,7 @@ void * fopen(char const * path, char const * mode);
 void c_print(char const * str);
 void exit(int n);
 void abort();
+void halt();
 void perror(const char *s);
 
 #endif

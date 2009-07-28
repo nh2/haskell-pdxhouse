@@ -178,14 +178,14 @@ gfxShell2 exestate@(netstate,_) gfx fonts =
 	     user = Net.Interface { Net.rx = getLine, Net.tx = putStr }
 	     loop =  do putStr "> "
 			cmd <- getLine
-			execute exestate user (words cmd)
+			execute exestate getChar user (words cmd)
 			loop
 	     shell = do putStrLn $ welcome++msg
 		        loop
          forkH shell
          return (dispCh,kbdCh)
 
-    execute exestate user = execute2 extra exestate user
+    execute exestate getChar user = execute2 extra exestate getChar user
       where
         extra = cmd "vbeinfo" vbeinfo P.!
 	        cmd "clear" (putStr "\f") P.!
@@ -207,18 +207,21 @@ gfxShell2 exestate@(netstate,_) gfx fonts =
 --textShell :: Console -> Chan KeyPress -> H ()
 textShell console exestate chan =
     do editor  <- newEditor chan console
+       kbdCh   <- newChan
        let user = Net.Interface { Net.rx=getLine editor "> ", Net.tx=putStr }
            loop =
 	     do line <- getLine editor "> "
 		putStrLn ""
-		execute exestate user line
+		execute exestate (readChan kbdCh) user line
 		loop
        loop
   where
     putStr =  putString console
     putStrLn = putStringLn console
+    
+    
 
-    execute state user = execute2 extra state user . words
+    execute state getChar user = execute2 extra state getChar user . words
       where
         extra = cmd "testmouse" testmouse P.!
 	        cmd "testmouse2" testmouse2 P.!
@@ -232,18 +235,18 @@ textShell console exestate chan =
 			testMouse2 putStr
 	loadfonts = putStrLn . either id (show . map fst) =<< loadFonts
 
-execute2 _ _ _ [] = done
-execute2 extra exestate user cmd | last cmd=="&" =
-  do forkH $ execute3 extra exestate user (init cmd)
+execute2 _ _ _ _ [] = done
+execute2 extra exestate getChar user cmd | last cmd=="&" =
+  do forkH $ execute3 extra exestate getChar user (init cmd)
      done
-execute2 extra exestate user cmd = execute3 extra exestate user cmd
+execute2 extra exestate getChar user cmd = execute3 extra exestate getChar user cmd
 
-execute3 extra exestate@(netstate,pciState) user =
+execute3 extra exestate@(netstate,pciState) getChar user  =
     either putStrLn id . parseAll grammar
   where
     grammar =
       commands P.!
-      netcommands (execute2 extra exestate) runBytes findPCINet netstate user P.!
+      netcommands (execute2 extra exestate getChar) runBytes findPCINet netstate user P.!
       extra P.!
       debugcommands
 
@@ -353,9 +356,10 @@ execute3 extra exestate@(netstate,pciState) user =
            Right msg ->
               putStrLn ("Exit Status: " ++ show msg)
 
-    moduleUProc = buildUProc putStr . peekByteOff
+    moduleUProc = buildUProc getChar putStr . peekByteOff
+    
 
-    bytesUProc bs = buildUProc putStr (return.(a!))
+    bytesUProc bs = buildUProc getChar putStr (return.(a!))
       where a = listArray (0,fromIntegral (length bs)-1) bs :: UArray Word32 Word8
     runBytes = runUProc @@ bytesUProc
 
@@ -371,6 +375,12 @@ testMouse2 putStr =
 
 --foreign import ccall "Schedule.h printAllThreads"
 --    printAllThreads :: IO ()
+
+-- foreign import ccall unsafe "util.h halt" halt :: H ()
+--idle = 
+--    do yield
+--       halt
+--       idle
 
 idle = idle' 0
     where idle' n =
