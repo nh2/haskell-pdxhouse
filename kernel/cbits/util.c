@@ -131,6 +131,10 @@ void abort() {
     __asm__("hlt");
 }
 
+void halt() {
+	__asm__("hlt");
+}
+
 void perror(const char *s) {
   kprintf("%s", s);
   abort();
