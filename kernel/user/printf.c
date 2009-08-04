@@ -228,13 +228,6 @@ void putch(unsigned c) {
 }
 
 
-char getch() {
-  char ret;
-  __asm__ __volatile__ ("mov $3,%%eax" ::);
-  __asm__ __volatile__ ("int $0x80" ::: "eax");
-  return ret;
-}
-
 static int printf_helper(void *ptr, int c)
 {
   putch(c);

@@ -1,6 +1,8 @@
 main () {
-  char c = getch();
-  printf("Hello %c!\n", c);
+    for (;;) {
+	  printf("You typed: %c!\n", getch());
+    }
+
   exit(6*7);
 }
 

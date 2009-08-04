@@ -1,7 +1,7 @@
 module Kernel.UserProc(UProc,buildUProc,execUProc) where
 
 {-P:
-import Prelude hiding (putStr,getChar)
+import Prelude hiding (putStr,getLine,getChar)
 -}
 -- import Kernel.Debug(putStr,putStrLn)
 import Numeric(showHex)
@@ -21,7 +21,8 @@ import Kernel.AOut
 data UProc = UProc
 	     {aout        :: AOut,
 	      myPutStr    :: String -> H (),
-              myGetChar   :: H Char,
+              myGetLine   :: H String,
+              line        :: String,
 	      brk	  :: VAddr,
 	      maxBrk      :: VAddr,
               stackRegion :: VRegion,
@@ -44,8 +45,8 @@ maxStackPages = 16
 maxHeapPages :: Int
 maxHeapPages = 128   -- 512KB 
 
-buildUProc :: (H Char) -> (String -> H()) -> Image -> H UProc
-buildUProc getChar putStr aoutImage =
+buildUProc :: (H String) -> (String -> H()) -> Image -> H UProc
+buildUProc getLine putStr aoutImage =
      do aout  <- buildAOut aoutImage
         let brk = pageCeiling (snd $ bssRegion aout)
         let endStack = snd userRegion
@@ -54,7 +55,8 @@ buildUProc getChar putStr aoutImage =
         return UProc
 	       {aout        = aout,
                 myPutStr    = putStr,
-                myGetChar   = getChar,
+                myGetLine   = getLine,
+                line        = "",
 	        brk         = brk,
 		maxBrk      = brk + fromIntegral (maxHeapPages*pageSize),
 	        stackRegion = (startStack,endStack),
@@ -119,12 +121,22 @@ doSyscall uproc@UProc{context=Context{eax=callnum,ebx=arg}} =
               Nothing                   -> return $ uproc `withResult` (-1)
               Just (uproc',oldBrk)      -> return $ uproc' `withResult` oldBrk
        3 -> {- getChar -}
-            do c <- myGetChar uproc
-               return $ uproc `withResult` ((fromIntegral (fromEnum c))::Word32)
+            do --myPutStr uproc $ "line in doSysCall: " ++ (line uproc) ++ "\n"
+               (c, uproc') <- getChar uproc
+               return $ uproc' `withResult` ((fromIntegral (fromEnum c))::Word32)
        _ -> return $ uproc `withResult` (-1) 
    where withResult uproc@UProc{context=context} v = 
             Left (uproc{context=context{eax=v}})
             
+getChar :: UProc -> H (Char, UProc)
+getChar uproc
+  = do let myStr = (line uproc)
+       case myStr of
+         []     -> do s <- myGetLine uproc
+                      let s' = s ++ "\n"
+                      case s' of
+                        (c:cs) -> return (c, uproc{line=cs})
+         (c:cs) -> do return (c, uproc{line=cs})  
 
 freeUProc :: UProc -> H ()
 freeUProc uproc  
