@@ -7,12 +7,14 @@ import Prelude hiding (putStr,getLine,getChar)
 import Numeric(showHex)
 import Data.Bits((.&.))
 import Data.Char(chr)
-import H.Monad(H)
+--import Data.Time.Clock
+import H.Monad(H,liftIO)
 import H.UserMode(Context(..),Interrupt(..),execContext)
 import H.Interrupts(IRQ(..),eoiIRQ)
 import Kernel.Interrupts(callIRQHandler)
-import Data.Word(Word32)
-import H.Monad(H)
+import Kernel.Driver.CMOS
+import Kernel.Timer(readTimer)
+import Data.Word(Word8,Word32,Word64)
 import H.VirtualMemory(VAddr,PageMap,PageInfo(..),allocPageMap,freePageMap,setPage)
 import H.PhysicalMemory(PhysPage,pageSize,allocPhysPage,freePhysPage,setPAddr)
 import Kernel.AOut
@@ -23,6 +25,7 @@ data UProc = UProc
 	      myPutStr    :: String -> H (),
               myGetLine   :: H String,
               line        :: String,
+              timems      :: Int,
 	      brk	  :: VAddr,
 	      maxBrk      :: VAddr,
               stackRegion :: VRegion,
@@ -57,6 +60,7 @@ buildUProc getLine putStr aoutImage =
                 myPutStr    = putStr,
                 myGetLine   = getLine,
                 line        = "",
+                timems      = 0,
 	        brk         = brk,
 		maxBrk      = brk + fromIntegral (maxHeapPages*pageSize),
 	        stackRegion = (startStack,endStack),
@@ -69,10 +73,14 @@ zeroContext  = Context {edi=0,esi=0,ebp=0,esp=0,ebx=0,
                         edx=0,ecx=0,eax=0,eip=0,eflags=0}
 
 
+
 execUProc :: UProc -> H (Either UProc String)
 execUProc uproc 
-  = do (interrupt,context') <- execContext (pmap uproc) (context uproc)
-       let uproc' = uproc{context=context'}
+  = do startProcTimems <- readTimer
+       (interrupt,context') <- execContext (pmap uproc) (context uproc)
+       endProcTimems <- readTimer
+       let newProcTimems = (timems uproc) + (endProcTimems-startProcTimems)
+       let uproc' = uproc{context=context',timems=newProcTimems}
            exitWith msg = 
               do freeUProc uproc'
                  return $ Right msg
@@ -107,37 +115,33 @@ execUProc uproc
 
 
 doSyscall :: UProc -> H (Either UProc String)
-doSyscall uproc@UProc{context=Context{eax=callnum,ebx=arg}} =
+doSyscall uproc@UProc{context=Context{eax=callnum,ebx=arg1,ecx=arg2}} =
    do -- putStrLn("Sys call " ++ (show callnum) ++ " " ++ (show arg))
       case callnum of
        0 -> {- exit -}
             return $ 
-               Right ("Success with " ++ show (fromIntegral (arg .&. 0xff)))
+               Right ("Success with " ++ show (fromIntegral (arg1 .&. 0xff)))
        1 -> {- putChar -}
-            do myPutStr uproc [chr (fromIntegral (arg .&. 0xff))]
+            do myPutStr uproc [chr (fromIntegral (arg1 .&. 0xff))]
                return $ uproc `withResult` 0
        2 -> {- sbrk -}
-            case extendBrk uproc arg of
+            case extendBrk uproc arg1 of
               Nothing                   -> return $ uproc `withResult` (-1)
               Just (uproc',oldBrk)      -> return $ uproc' `withResult` oldBrk
        3 -> {- getChar -}
             do --myPutStr uproc $ "line in doSysCall: " ++ (line uproc) ++ "\n"
                (c, uproc') <- getChar uproc
                return $ uproc' `withResult` ((fromIntegral (fromEnum c))::Word32)
+       4 -> {- getBuf -}
+            do return $ uproc `withResult` 0
+       5 -> {- timems -}
+            do --procTime <- getCMOSTime
+               --myPutStr uproc $ "cmostime: " ++ show (procTime) ++ "\n"
+               return $ uproc `withResult` (fromIntegral(timems uproc))
        _ -> return $ uproc `withResult` (-1) 
    where withResult uproc@UProc{context=context} v = 
             Left (uproc{context=context{eax=v}})
             
-getChar :: UProc -> H (Char, UProc)
-getChar uproc
-  = do let myStr = (line uproc)
-       case myStr of
-         []     -> do s <- myGetLine uproc
-                      let s' = s ++ "\n"
-                      case s' of
-                        (c:cs) -> return (c, uproc{line=cs})
-         (c:cs) -> do return (c, uproc{line=cs})  
-
 freeUProc :: UProc -> H ()
 freeUProc uproc  
   = do freePageMap (pmap uproc)
@@ -153,6 +157,27 @@ extendBrk uproc incr
        else
           Nothing
 
+getChar :: UProc -> H (Char, UProc)
+getChar uproc
+  = do let myStr = (line uproc)
+       case myStr of
+         []     -> do s <- myGetLine uproc
+                      let s' = s ++ "\n"
+                      case s' of
+                        (c:cs) -> return (c, uproc{line=cs})
+         (c:cs) -> do return (c, uproc{line=cs})
+         
+         
+--getCMOSTime :: (H Word32)
+--getCMOSTime
+--  = do (year, month, day, hour, min, sec) <- getRawTime
+--       let newTime = ((fromIntegral year) * 31556926) +
+--                     ((fromIntegral month) * 2629744) + -- rounded up
+--                     ((fromIntegral day) * 86400)     +
+--                     ((fromIntegral hour) * 3600)     +
+--                     ((fromIntegral min) * 60)        +
+--                     ((fromIntegral sec))
+--       return newTime  
 
 fixPage :: UProc -> VAddr -> H (Either UProc String)
 fixPage uproc vaddr | vaddr `inVRegion` (codeRegion $ aout uproc)
@@ -202,4 +227,5 @@ pageFloor vaddr = vaddr `div` (fromIntegral pageSize) * (fromIntegral pageSize)
 pageCeiling :: VAddr -> VAddr 
 pageCeiling vaddr = ((vaddr - 1) `div` (fromIntegral pageSize) + 1) 
                     * (fromIntegral pageSize)
+                    
 

@@ -72,7 +72,7 @@ main = --trappedRunH mainH
 mainH :: H ()
 mainH =
     do enableInterrupts
-       forkH idle
+       --forkH idle
        netState <- newMVar Nothing
        pciState <- newMVar (Nothing,Nothing) -- XXX
        trace "Tracing enabled"

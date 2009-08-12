@@ -96,7 +96,7 @@ bin2bcd bin =
     let (d, r) = bin `divMod` 10
      in shiftL d 4 + r
 
---getRawTime :: H (Word8, Word8, Word8, Word8, Word8, Word8)
+getRawTime :: H (Word8, Word8, Word8, Word8, Word8, Word8)
 getRawTime = withQSem s_cmosAccess $
     do control <- getRegister rtcControl
        let f = if testDMBinary control

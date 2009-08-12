@@ -1,6 +1,7 @@
 static int x = 99;
 
 int main () {
+  int startTimems = timems();
   int i,j;
   x = 30;
   x = bar(x);
@@ -11,6 +12,7 @@ int main () {
       printf ("answer = %d\n",x);
     }
   }
+  printf("Execution time (ms): %d\n",timems()-startTimems);
   exit (0x77);
 }
 
